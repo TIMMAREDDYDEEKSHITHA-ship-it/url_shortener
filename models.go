@@ -4,8 +4,11 @@
 
 package main
 
+import "github.com/uptrace/bun"
+
 type User struct {
-	ID    string `json:"id"`
-	Name  string `json:"name"`
-	Email string `json:"email"`
+	bun.BaseModel `bun:"table:users"`
+	ID            string `json:"id" bun:"id,pk"`
+	Name          string `json:"name"`
+	Email         string `json:"email"`
 }

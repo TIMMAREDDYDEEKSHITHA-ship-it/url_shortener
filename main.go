@@ -1,23 +1,53 @@
-//Starts the server
-
 package main
 
 import (
+	"context"
+	"database/sql"
 	"log"
 	"net/http"
+	"os"
+
+	"github.com/uptrace/bun"
+	"github.com/uptrace/bun/dialect/pgdialect"
+	"github.com/uptrace/bun/driver/pgdriver"
 )
 
+var db *bun.DB
+
+func initDB() {
+	dsn := os.Getenv("DATABASE_DSN")
+	if dsn == "" {
+		dsn = "postgres://postgres:postgres@db:5432/url_shortener?sslmode=disable"
+	}
+	sqldb := sql.OpenDB(pgdriver.NewConnector(pgdriver.WithDSN(dsn)))
+	db = bun.NewDB(sqldb, pgdialect.New())
+	if err := db.Ping(); err != nil {
+		log.Fatal("failed to connect to database:", err)
+	}
+	log.Println("Database connected successfully")
+}
+
+func createTables(ctx context.Context) error {
+	_, err := db.NewCreateTable().
+		Model((*User)(nil)).
+		IfNotExists().
+		Exec(ctx)
+	return err
+}
+
 func main() {
-	http.HandleFunc("/users", func(w http.ResponseWriter, r *http.Request) {
-		if r.Method == http.MethodPost {
-			createUserHandler(w, r)
-		} else if r.Method == http.MethodGet {
-			getUsersHandler(w, r)
-		} else {
-			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
-		}
+	initDB()
+
+	ctx := context.Background()
+	if err := createTables(ctx); err != nil {
+		log.Fatal("failed to create tables:", err)
+	}
+
+	http.HandleFunc("/users", usersHandler)
+	http.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
+		w.Write([]byte("OK"))
 	})
 
-	log.Println("Server running on :8080")
+	log.Println("Server running on port:8080")
 	log.Fatal(http.ListenAndServe(":8080", nil))
 }
