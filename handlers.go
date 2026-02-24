@@ -7,7 +7,7 @@ import (
 	"net/http"
 )
 
-func createUserHandler(w http.ResponseWriter, r *http.Request) {
+func (s *Server) createUserHandler(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 		return
@@ -19,7 +19,7 @@ func createUserHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	_, err = db.NewInsert().Model(&user).Exec(r.Context())
+	err = s.userRepo.CreateUser(r.Context(), &user)
 
 	if err != nil {
 		http.Error(w, "Failed to insert user", http.StatusInternalServerError)
@@ -29,9 +29,8 @@ func createUserHandler(w http.ResponseWriter, r *http.Request) {
 	w.Write([]byte("User created successfully"))
 }
 
-func getUsersHandler(w http.ResponseWriter, r *http.Request) {
-	var users []User
-	err := db.NewSelect().Model(&users).Scan(r.Context())
+func (s *Server) getUsersHandler(w http.ResponseWriter, r *http.Request) {
+	users, err := s.userRepo.GetUsers(r.Context())
 	if err != nil {
 		http.Error(w, "Failed to fetch users", http.StatusInternalServerError)
 		return
@@ -40,7 +39,7 @@ func getUsersHandler(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(users)
 }
 
-func deleteUserHandler(w http.ResponseWriter, r *http.Request) {
+func (s *Server) deleteUserHandler(w http.ResponseWriter, r *http.Request) {
 	id := r.URL.Query().Get("id")
 	if id == "" {
 		http.Error(w, "ID is required", http.StatusBadRequest)
@@ -60,7 +59,7 @@ func deleteUserHandler(w http.ResponseWriter, r *http.Request) {
 	w.Write([]byte("User deleted successfully"))
 }
 
-func updateUserHandler(w http.ResponseWriter, r *http.Request) {
+func (s *Server) updateUserHandler(w http.ResponseWriter, r *http.Request) {
 	id := r.URL.Query().Get("id")
 	if id == "" {
 		http.Error(w, "ID is required", http.StatusBadRequest)
@@ -84,16 +83,16 @@ func updateUserHandler(w http.ResponseWriter, r *http.Request) {
 	w.Write([]byte("User updated successfully"))
 }
 
-func usersHandler(w http.ResponseWriter, r *http.Request) {
+func (s *Server) usersHandler(w http.ResponseWriter, r *http.Request) {
 	switch r.Method {
 	case http.MethodPost:
-		createUserHandler(w, r)
+		s.createUserHandler(w, r)
 	case http.MethodGet:
-		getUsersHandler(w, r)
-	case http.MethodDelete:
-		deleteUserHandler(w, r)
+		s.getUsersHandler(w, r)
 	case http.MethodPut:
-		updateUserHandler(w, r)
+		s.updateUserHandler(w, r)
+	case http.MethodDelete:
+		s.deleteUserHandler(w, r)
 	default:
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 
