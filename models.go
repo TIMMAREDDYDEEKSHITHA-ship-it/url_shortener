@@ -1,14 +1,16 @@
-//user structure
-
-//this file defines what a user is
-
 package main
 
-import "github.com/uptrace/bun"
+import (
+	"time"
 
-type User struct {
-	bun.BaseModel `bun:"table:users"`
-	ID            string `json:"id" bun:"id,pk"`
-	Name          string `json:"name"`
-	Email         string `json:"email"`
+	"github.com/uptrace/bun"
+)
+
+type URL struct {
+	bun.BaseModel `bun:"table:urls"`
+
+	ID        int64     `bun:",pk,autoincrement"`
+	Code      string    `bun:",unique,notnull"`
+	LongURL   string    `bun:",notnull"`
+	CreatedAt time.Time `bun:",nullzero,notnull,default:current_timestamp"`
 }

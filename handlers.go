@@ -1,101 +1,89 @@
-// http handlers
-
 package main
 
 import (
 	"encoding/json"
+	"math/rand"
 	"net/http"
+	"time"
 )
 
-func createUserHandler(w http.ResponseWriter, r *http.Request) {
+type Handler struct {
+	service URLService
+}
+
+func NewHandler(service URLService) *Handler {
+	return &Handler{service: service}
+}
+
+func generateCode() string {
+	const letters = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
+	rand.Seed(time.Now().UnixNano())
+
+	b := make([]byte, 6)
+	for i := range b {
+		b[i] = letters[rand.Intn(len(letters))]
+	}
+	return string(b)
+}
+
+func (h *Handler) Shorten(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
-	var user User
-	err := json.NewDecoder(r.Body).Decode(&user)
-	if err != nil {
+
+	var req struct {
+		URL string `json:"url"`
+	}
+
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		http.Error(w, "Invalid JSON", http.StatusBadRequest)
 		return
 	}
 
-	_, err = db.NewInsert().Model(&user).Exec(r.Context())
-
-	if err != nil {
-		http.Error(w, "Failed to insert user", http.StatusInternalServerError)
+	if req.URL == "" {
+		http.Error(w, "URL is required", http.StatusBadRequest)
 		return
 	}
-	w.WriteHeader(http.StatusCreated)
-	w.Write([]byte("User created successfully"))
-}
 
-func getUsersHandler(w http.ResponseWriter, r *http.Request) {
-	var users []User
-	err := db.NewSelect().Model(&users).Scan(r.Context())
-	if err != nil {
-		http.Error(w, "Failed to fetch users", http.StatusInternalServerError)
+	code := generateCode()
+
+	url := &URL{
+		Code:    code,
+		LongURL: req.URL,
+	}
+
+	if err := h.service.CreateURL(r.Context(), url); err != nil {
+		http.Error(w, "Failed to create short URL", http.StatusInternalServerError)
 		return
 	}
+
+	resp := map[string]string{
+		"short_url": "http://localhost:8080/" + code,
+	}
+
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(users)
+	json.NewEncoder(w).Encode(resp)
 }
 
-func deleteUserHandler(w http.ResponseWriter, r *http.Request) {
-	id := r.URL.Query().Get("id")
-	if id == "" {
-		http.Error(w, "ID is required", http.StatusBadRequest)
+func (h *Handler) Redirect(w http.ResponseWriter, r *http.Request) {
+	code := r.URL.Path[1:]
+
+	if code == "" || code == "shorten" {
+		http.NotFound(w, r)
 		return
 	}
-	result, err := db.NewDelete().Model((*User)(nil)).Where("id=?", id).Exec(r.Context())
+
+	url, err := h.service.GetByCode(r.Context(), code)
 	if err != nil {
-		http.Error(w, "Failed to delete user", http.StatusInternalServerError)
+		http.NotFound(w, r)
 		return
 	}
 
-	rowsAffected, _ := result.RowsAffected()
-	if rowsAffected == 0 {
-		http.Error(w, "User not found", http.StatusNotFound)
-		return
-	}
-	w.Write([]byte("User deleted successfully"))
+	http.Redirect(w, r, url.LongURL, http.StatusFound)
 }
 
-func updateUserHandler(w http.ResponseWriter, r *http.Request) {
-	id := r.URL.Query().Get("id")
-	if id == "" {
-		http.Error(w, "ID is required", http.StatusBadRequest)
-		return
-	}
-	var user User
-	if err := json.NewDecoder(r.Body).Decode(&user); err != nil {
-		http.Error(w, "Invalid JSON", http.StatusBadRequest)
-		return
-	}
-	result, err := db.NewUpdate().Model(&user).Where("id=?", id).Exec(r.Context())
-	if err != nil {
-		http.Error(w, "Failed to update user", http.StatusInternalServerError)
-		return
-	}
-	rowsAffected, _ := result.RowsAffected()
-	if rowsAffected == 0 {
-		http.Error(w, "User not found", http.StatusNotFound)
-		return
-	}
-	w.Write([]byte("User updated successfully"))
-}
-
-func usersHandler(w http.ResponseWriter, r *http.Request) {
-	switch r.Method {
-	case http.MethodPost:
-		createUserHandler(w, r)
-	case http.MethodGet:
-		getUsersHandler(w, r)
-	case http.MethodDelete:
-		deleteUserHandler(w, r)
-	case http.MethodPut:
-		updateUserHandler(w, r)
-	default:
-		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
-
-	}
+func (h *Handler) Health(w http.ResponseWriter, r *http.Request) {
+	w.WriteHeader(http.StatusOK)
+	w.Write([]byte("OK"))
 }
