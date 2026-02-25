@@ -3,175 +3,128 @@ package main
 import (
 	"bytes"
 	"context"
-	"database/sql"
-	"errors"
+	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"testing"
+
+	"database/sql"
 
 	"github.com/uptrace/bun"
 	"github.com/uptrace/bun/dialect/pgdialect"
 	"github.com/uptrace/bun/driver/pgdriver"
 )
 
-type mockRepo struct{}
+func setupTestServer(t *testing.T) *Server {
+	dsn := "postgres://postgres:postgres@localhost:5432/url_shortener?sslmode=disable"
 
-func (m *mockRepo) Create(ctx context.Context, user *User) error {
-	return nil
-}
-
-func (m *mockRepo) GetAll(ctx context.Context) ([]User, error) {
-	return []User{
-		{ID: "1", Name: "TestUser", Email: "test@example.com"},
-	}, nil
-}
-
-func (m *mockRepo) Update(ctx context.Context, user *User) error {
-	if user.ID == "999" {
-		return errors.New("not found")
-	}
-	return nil
-}
-
-func (m *mockRepo) Delete(ctx context.Context, id string) error {
-	if id == "999" {
-		return errors.New("not found")
-	}
-	return nil
-}
-
-func setupTestDB(t *testing.T) {
-	dsn := "postgres://timmareddydeekshitha@localhost:5432/url_shortener?sslmode=disable"
 	sqldb := sql.OpenDB(pgdriver.NewConnector(pgdriver.WithDSN(dsn)))
-	db = bun.NewDB(sqldb, pgdialect.New())
-	err := db.Ping()
-	if err != nil {
-		t.Fatalf("Failed to connect to database: %v", err)
+	testDB := bun.NewDB(sqldb, pgdialect.New())
+
+	if err := testDB.Ping(); err != nil {
+		t.Fatalf("Failed to connect to test DB: %v", err)
 	}
 
-	ctx := context.Background()
-	_, err = db.NewCreateTable().Model((*User)(nil)).IfNotExists().Exec(ctx)
+	// create table
+	_, err := testDB.NewCreateTable().
+		Model((*URL)(nil)).
+		IfNotExists().
+		Exec(context.Background())
+
 	if err != nil {
-		t.Fatalf("Failed to create users table: %v", err)
+		t.Fatalf("Failed to create table: %v", err)
 	}
 
-	_, err = db.NewTruncateTable().Model((*User)(nil)).Exec(ctx)
-	if err != nil {
-		t.Fatalf("Failed to truncate users table:%v", err)
+	server := NewServer(testDB)
+	server.RegisterRoutes()
+
+	return server
+}
+
+func TestHealth(t *testing.T) {
+	server := setupTestServer(t)
+
+	req := httptest.NewRequest(http.MethodGet, "/health", nil)
+	w := httptest.NewRecorder()
+
+	server.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Errorf("Expected 200, got %d", w.Code)
 	}
 }
 
-func TestCreateUser(t *testing.T) {
-	//repo := &mockRepo{}
-	handler := NewHandler(&mockService{})
-	reqBody := []byte(`{"id":"100","name":"Test","email":"test@example.com"}`)
-	req := httptest.NewRequest(http.MethodPost, "/users", bytes.NewBuffer(reqBody))
+func TestShorten(t *testing.T) {
+	server := setupTestServer(t)
+
+	body := []byte(`{"url":"https://example.com"}`)
+	req := httptest.NewRequest(http.MethodPost, "/shorten", bytes.NewBuffer(body))
 	req.Header.Set("Content-Type", "application/json")
-	w := httptest.NewRecorder()
-	handler.Users(w, req)
-	if w.Code != http.StatusCreated {
-		t.Errorf("Expected status 201, got %d", w.Code)
-	}
-}
 
-func TestGetUsers(t *testing.T) {
-	//repo := &mockRepo{}
-	handler := NewHandler(&mockService{})
-	req := httptest.NewRequest(http.MethodGet, "/users", nil)
 	w := httptest.NewRecorder()
-	handler.Users(w, req)
+	server.ServeHTTP(w, req)
+
 	if w.Code != http.StatusOK {
-		t.Errorf("Expected status 200, got %d", w.Code)
+		t.Errorf("Expected 200, got %d", w.Code)
+	}
+
+	var resp map[string]string
+	err := json.Unmarshal(w.Body.Bytes(), &resp)
+	if err != nil {
+		t.Errorf("Invalid JSON response")
+	}
+
+	if resp["short_url"] == "" {
+		t.Errorf("Expected short_url in response")
 	}
 }
 
-func TestUpdateUser(t *testing.T) {
-	setupTestDB(t)
-	//repo := NewUserRepository(db)
-	handler := NewHandler(&mockService{})
-	user := User{ID: "2", Name: "Old", Email: "old@example.com"}
-	db.NewInsert().Model(&user).Exec(context.Background())
-	reqBody := []byte(`{"name":"New","email":"new@example.com"}`)
-	req := httptest.NewRequest(http.MethodPut, "/users?id=2", bytes.NewBuffer(reqBody))
-	req.Header.Set("Content-Type", "application/json")
-	w := httptest.NewRecorder()
-	handler.Users(w, req)
-	if w.Code != http.StatusOK {
-		t.Errorf("Expected status 200, got %d", w.Code)
-	}
-}
+func TestShortenInvalidJSON(t *testing.T) {
+	server := setupTestServer(t)
 
-func TestDeleteUser(t *testing.T) {
-	setupTestDB(t)
-	//repo := NewUserRepository(db)
-	handler := NewHandler(&mockService{})
-	user := User{ID: "3", Name: "DeleteMe", Email: "delete@example.com"}
-	db.NewInsert().Model(&user).Exec(context.Background())
-	req := httptest.NewRequest(http.MethodDelete, "/users?id=3", nil)
+	req := httptest.NewRequest(http.MethodPost, "/shorten", bytes.NewBuffer([]byte(`invalid`)))
 	w := httptest.NewRecorder()
-	handler.Users(w, req)
-	if w.Code != http.StatusOK {
-		t.Errorf("Expected status 200, got %d", w.Code)
-	}
-}
 
-func TestInvalidJSON(t *testing.T) {
-	setupTestDB(t)
-	//repo := NewUserRepository(db)
-	handler := NewHandler(&mockService{})
-	reqBody := []byte(`invalid json`)
-	req := httptest.NewRequest(http.MethodPost, "/users", bytes.NewBuffer(reqBody))
-	w := httptest.NewRecorder()
-	handler.Users(w, req)
+	server.ServeHTTP(w, req)
+
 	if w.Code != http.StatusBadRequest {
-		t.Errorf("Expected status 400, got %d", w.Code)
+		t.Errorf("Expected 400, got %d", w.Code)
 	}
 }
 
-func TestDeleteUserNotFound(t *testing.T) {
-	//repo := &mockRepo{}
-	handler := NewHandler(&mockService{})
-	req := httptest.NewRequest(http.MethodDelete, "/users?id=999", nil)
-	w := httptest.NewRecorder()
-	handler.Users(w, req)
-	if w.Code != http.StatusNotFound {
-		t.Errorf("Expected status 404, got %d", w.Code)
-	}
-}
+func TestRedirect(t *testing.T) {
+	server := setupTestServer(t)
 
-func TestUpdateUserNotFound(t *testing.T) {
-	//repo := &mockRepo{}
-	handler := NewHandler(&mockService{})
-	reqBody := []byte(`{"name":"New","email":"new@example.com"}`)
-	req := httptest.NewRequest(http.MethodPut, "/users?id=999", bytes.NewBuffer(reqBody))
-	req.Header.Set("Content-Type", "application/json")
-	w := httptest.NewRecorder()
-	handler.Users(w, req)
-	if w.Code != http.StatusNotFound {
-		t.Errorf("Expected status 404, got %d", w.Code)
+	// insert test URL manually
+	url := &URL{
+		Code:    "abc123",
+		LongURL: "https://example.com",
 	}
-}
 
-func TestMissingIDParameter(t *testing.T) {
-	setupTestDB(t)
-	//repo := NewUserRepository(db)
-	handler := NewHandler(&mockService{})
-	req := httptest.NewRequest(http.MethodDelete, "/users", nil)
+	_, err := server.db.NewInsert().Model(url).Exec(context.Background())
+	if err != nil {
+		t.Fatalf("Insert failed: %v", err)
+	}
+
+	req := httptest.NewRequest(http.MethodGet, "/abc123", nil)
 	w := httptest.NewRecorder()
-	handler.Users(w, req)
-	if w.Code != http.StatusBadRequest {
-		t.Errorf("Expected status 400, got %d", w.Code)
+
+	server.ServeHTTP(w, req)
+
+	if w.Code != http.StatusFound {
+		t.Errorf("Expected 302 redirect, got %d", w.Code)
 	}
 }
 
 func TestMethodNotAllowed(t *testing.T) {
-	setupTestDB(t)
-	//repo := NewUserRepository(db)
-	handler := NewHandler(&mockService{})
-	req := httptest.NewRequest(http.MethodPatch, "/users", nil)
+	server := setupTestServer(t)
+
+	req := httptest.NewRequest(http.MethodGet, "/shorten", nil)
 	w := httptest.NewRecorder()
-	handler.Users(w, req)
+
+	server.ServeHTTP(w, req)
+
 	if w.Code != http.StatusMethodNotAllowed {
-		t.Errorf("Expected status 405, got %d", w.Code)
+		t.Errorf("Expected 405, got %d", w.Code)
 	}
 }

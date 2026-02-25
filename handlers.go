@@ -1,93 +1,89 @@
-// http handlers
-
 package main
 
 import (
 	"encoding/json"
+	"math/rand"
 	"net/http"
+	"time"
 )
 
 type Handler struct {
-	service UserService
+	service URLService
 }
 
-func NewHandler(service UserService) *Handler {
+func NewHandler(service URLService) *Handler {
 	return &Handler{service: service}
 }
-func (h *Handler) CreateUser(w http.ResponseWriter, r *http.Request) {
-	var user User
-	if err := json.NewDecoder(r.Body).Decode(&user); err != nil {
-		http.Error(w, "Invalid JSON", http.StatusBadRequest)
-		return
-	}
 
-	if err := h.service.CreateUser(r.Context(), &user); err != nil {
-		http.Error(w, "Failed to insert user", http.StatusInternalServerError)
-		return
+func generateCode() string {
+	const letters = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
+	rand.Seed(time.Now().UnixNano())
+
+	b := make([]byte, 6)
+	for i := range b {
+		b[i] = letters[rand.Intn(len(letters))]
 	}
-	w.WriteHeader(http.StatusCreated)
-	w.Write([]byte("User created successfully"))
+	return string(b)
 }
 
-func (h *Handler) GetUsers(w http.ResponseWriter, r *http.Request) {
-	users, err := h.service.GetUsers(r.Context())
-	if err != nil {
-		http.Error(w, "Failed to fetch users", http.StatusInternalServerError)
-		return
-	}
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(users)
-}
-
-func (h *Handler) UpdateUser(w http.ResponseWriter, r *http.Request) {
-	id := r.URL.Query().Get("id")
-	if id == "" {
-		http.Error(w, "Missing id parameter", http.StatusBadRequest)
-		return
-	}
-	var user User
-	if err := json.NewDecoder(r.Body).Decode(&user); err != nil {
-		http.Error(w, "Invalid JSON", http.StatusBadRequest)
-		return
-	}
-	user.ID = id
-	// Try to update user, if not found return 404
-	err := h.service.UpdateUser(r.Context(), &user)
-	if err != nil {
-		http.Error(w, "User not found", http.StatusNotFound)
-		return
-	}
-	w.WriteHeader(http.StatusOK)
-	w.Write([]byte("User updated successfully"))
-}
-
-func (h *Handler) DeleteUser(w http.ResponseWriter, r *http.Request) {
-	id := r.URL.Query().Get("id")
-	if id == "" {
-		http.Error(w, "Missing id parameter", http.StatusBadRequest)
-		return
-	}
-	// Try to delete user, if not found return 404
-	err := h.service.DeleteUser(r.Context(), id)
-	if err != nil {
-		http.Error(w, "User not found", http.StatusNotFound)
-		return
-	}
-	w.WriteHeader(http.StatusOK)
-	w.Write([]byte("User deleted successfully"))
-}
-
-func (h *Handler) Users(w http.ResponseWriter, r *http.Request) {
-	switch r.Method {
-	case http.MethodPost:
-		h.CreateUser(w, r)
-	case http.MethodGet:
-		h.GetUsers(w, r)
-	case http.MethodPut:
-		h.UpdateUser(w, r)
-	case http.MethodDelete:
-		h.DeleteUser(w, r)
-	default:
+func (h *Handler) Shorten(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
 	}
+
+	var req struct {
+		URL string `json:"url"`
+	}
+
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "Invalid JSON", http.StatusBadRequest)
+		return
+	}
+
+	if req.URL == "" {
+		http.Error(w, "URL is required", http.StatusBadRequest)
+		return
+	}
+
+	code := generateCode()
+
+	url := &URL{
+		Code:    code,
+		LongURL: req.URL,
+	}
+
+	if err := h.service.CreateURL(r.Context(), url); err != nil {
+		http.Error(w, "Failed to create short URL", http.StatusInternalServerError)
+		return
+	}
+
+	resp := map[string]string{
+		"short_url": "http://localhost:8080/" + code,
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(resp)
+}
+
+func (h *Handler) Redirect(w http.ResponseWriter, r *http.Request) {
+	code := r.URL.Path[1:]
+
+	if code == "" || code == "shorten" {
+		http.NotFound(w, r)
+		return
+	}
+
+	url, err := h.service.GetByCode(r.Context(), code)
+	if err != nil {
+		http.NotFound(w, r)
+		return
+	}
+
+	http.Redirect(w, r, url.LongURL, http.StatusFound)
+}
+
+func (h *Handler) Health(w http.ResponseWriter, r *http.Request) {
+	w.WriteHeader(http.StatusOK)
+	w.Write([]byte("OK"))
 }

@@ -29,7 +29,7 @@ func initDB() {
 
 func createTables(ctx context.Context) error {
 	_, err := db.NewCreateTable().
-		Model((*User)(nil)).
+		Model((*URL)(nil)).
 		IfNotExists().
 		Exec(ctx)
 	return err
@@ -42,11 +42,9 @@ func main() {
 		log.Fatal("failed to create tables:", err)
 	}
 
-	repo := NewUserRepository(db)
-	service := NewUserService(repo)
-	handler := NewHandler(service)
+	server := NewServer(db)
+	server.RegisterRoutes()
 
-	http.HandleFunc("/users", handler.Users)
-	log.Println("Server running on port:8080")
-	log.Fatal(http.ListenAndServe(":8080", nil))
+	log.Println("Server running on port: 8080")
+	log.Fatal(http.ListenAndServe(":8080", server))
 }

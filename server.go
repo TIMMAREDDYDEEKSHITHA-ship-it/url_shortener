@@ -1,14 +1,35 @@
 package main
 
-import "github.com/uptrace/bun"
+import (
+	"net/http"
+
+	"github.com/uptrace/bun"
+)
 
 type Server struct {
-	userRepo UserRepo
+	db      *bun.DB
+	handler *Handler
+	mux     *http.ServeMux
 }
 
 func NewServer(db *bun.DB) *Server {
-	userRepo := NewUserRepository(db)
+	repo := NewURLRepository(db)
+	service := NewURLService(repo)
+	handler := NewHandler(service)
+
 	return &Server{
-		userRepo: userRepo,
+		db:      db,
+		handler: handler,
+		mux:     http.NewServeMux(),
 	}
+}
+
+func (s *Server) RegisterRoutes() {
+	s.mux.HandleFunc("/health", s.handler.Health)
+	s.mux.HandleFunc("/shorten", s.handler.Shorten)
+	s.mux.HandleFunc("/", s.handler.Redirect)
+}
+
+func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	s.mux.ServeHTTP(w, r)
 }
