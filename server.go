@@ -3,7 +3,7 @@ package main
 import "github.com/uptrace/bun"
 
 type Server struct {
-	userRepo *UserRepository
+	userRepo UserRepo
 }
 
 func NewServer(db *bun.DB) *Server {

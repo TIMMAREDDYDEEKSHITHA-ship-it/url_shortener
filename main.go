@@ -36,11 +36,17 @@ func createTables(ctx context.Context) error {
 }
 
 func main() {
-	initDB()                //intializing the DB connection
-	server := NewServer(db) //create a new server instance with the DB connection	db dependency
+	initDB()
+	ctx := context.Background()
+	if err := createTables(ctx); err != nil {
+		log.Fatal("failed to create tables:", err)
+	}
 
-	http.HandleFunc("/users", server.usersHandler) //pass the handler to the server method
+	repo := NewUserRepository(db)
+	service := NewUserService(repo)
+	handler := NewHandler(service)
+
+	http.HandleFunc("/users", handler.Users)
 	log.Println("Server running on port:8080")
-	log.Fatal(http.ListenAndServe(":8080", nil)) //starts  the http server
-
+	log.Fatal(http.ListenAndServe(":8080", nil))
 }

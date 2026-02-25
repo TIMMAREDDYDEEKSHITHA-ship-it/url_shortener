@@ -7,21 +7,21 @@ import (
 	"net/http"
 )
 
-func (s *Server) createUserHandler(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodPost {
-		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
-		return
-	}
+type Handler struct {
+	service UserService
+}
+
+func NewHandler(service UserService) *Handler {
+	return &Handler{service: service}
+}
+func (h *Handler) CreateUser(w http.ResponseWriter, r *http.Request) {
 	var user User
-	err := json.NewDecoder(r.Body).Decode(&user)
-	if err != nil {
+	if err := json.NewDecoder(r.Body).Decode(&user); err != nil {
 		http.Error(w, "Invalid JSON", http.StatusBadRequest)
 		return
 	}
 
-	err = s.userRepo.CreateUser(r.Context(), &user)
-
-	if err != nil {
+	if err := h.service.CreateUser(r.Context(), &user); err != nil {
 		http.Error(w, "Failed to insert user", http.StatusInternalServerError)
 		return
 	}
@@ -29,8 +29,8 @@ func (s *Server) createUserHandler(w http.ResponseWriter, r *http.Request) {
 	w.Write([]byte("User created successfully"))
 }
 
-func (s *Server) getUsersHandler(w http.ResponseWriter, r *http.Request) {
-	users, err := s.userRepo.GetUsers(r.Context())
+func (h *Handler) GetUsers(w http.ResponseWriter, r *http.Request) {
+	users, err := h.service.GetUsers(r.Context())
 	if err != nil {
 		http.Error(w, "Failed to fetch users", http.StatusInternalServerError)
 		return
@@ -39,30 +39,10 @@ func (s *Server) getUsersHandler(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(users)
 }
 
-func (s *Server) deleteUserHandler(w http.ResponseWriter, r *http.Request) {
+func (h *Handler) UpdateUser(w http.ResponseWriter, r *http.Request) {
 	id := r.URL.Query().Get("id")
 	if id == "" {
-		http.Error(w, "ID is required", http.StatusBadRequest)
-		return
-	}
-	result, err := db.NewDelete().Model((*User)(nil)).Where("id=?", id).Exec(r.Context())
-	if err != nil {
-		http.Error(w, "Failed to delete user", http.StatusInternalServerError)
-		return
-	}
-
-	rowsAffected, _ := result.RowsAffected()
-	if rowsAffected == 0 {
-		http.Error(w, "User not found", http.StatusNotFound)
-		return
-	}
-	w.Write([]byte("User deleted successfully"))
-}
-
-func (s *Server) updateUserHandler(w http.ResponseWriter, r *http.Request) {
-	id := r.URL.Query().Get("id")
-	if id == "" {
-		http.Error(w, "ID is required", http.StatusBadRequest)
+		http.Error(w, "Missing id parameter", http.StatusBadRequest)
 		return
 	}
 	var user User
@@ -70,31 +50,44 @@ func (s *Server) updateUserHandler(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Invalid JSON", http.StatusBadRequest)
 		return
 	}
-	result, err := db.NewUpdate().Model(&user).Where("id=?", id).Exec(r.Context())
+	user.ID = id
+	// Try to update user, if not found return 404
+	err := h.service.UpdateUser(r.Context(), &user)
 	if err != nil {
-		http.Error(w, "Failed to update user", http.StatusInternalServerError)
-		return
-	}
-	rowsAffected, _ := result.RowsAffected()
-	if rowsAffected == 0 {
 		http.Error(w, "User not found", http.StatusNotFound)
 		return
 	}
+	w.WriteHeader(http.StatusOK)
 	w.Write([]byte("User updated successfully"))
 }
 
-func (s *Server) usersHandler(w http.ResponseWriter, r *http.Request) {
+func (h *Handler) DeleteUser(w http.ResponseWriter, r *http.Request) {
+	id := r.URL.Query().Get("id")
+	if id == "" {
+		http.Error(w, "Missing id parameter", http.StatusBadRequest)
+		return
+	}
+	// Try to delete user, if not found return 404
+	err := h.service.DeleteUser(r.Context(), id)
+	if err != nil {
+		http.Error(w, "User not found", http.StatusNotFound)
+		return
+	}
+	w.WriteHeader(http.StatusOK)
+	w.Write([]byte("User deleted successfully"))
+}
+
+func (h *Handler) Users(w http.ResponseWriter, r *http.Request) {
 	switch r.Method {
 	case http.MethodPost:
-		s.createUserHandler(w, r)
+		h.CreateUser(w, r)
 	case http.MethodGet:
-		s.getUsersHandler(w, r)
+		h.GetUsers(w, r)
 	case http.MethodPut:
-		s.updateUserHandler(w, r)
+		h.UpdateUser(w, r)
 	case http.MethodDelete:
-		s.deleteUserHandler(w, r)
+		h.DeleteUser(w, r)
 	default:
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
-
 	}
 }

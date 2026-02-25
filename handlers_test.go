@@ -62,8 +62,8 @@ func setupTestDB(t *testing.T) {
 }
 
 func TestCreateUser(t *testing.T) {
-	repo := &mockRepo{}
-	handler := NewHandler(repo)
+	//repo := &mockRepo{}
+	handler := NewHandler(&mockService{})
 	reqBody := []byte(`{"id":"100","name":"Test","email":"test@example.com"}`)
 	req := httptest.NewRequest(http.MethodPost, "/users", bytes.NewBuffer(reqBody))
 	req.Header.Set("Content-Type", "application/json")
@@ -75,8 +75,8 @@ func TestCreateUser(t *testing.T) {
 }
 
 func TestGetUsers(t *testing.T) {
-	repo := &mockRepo{}
-	handler := NewHandler(repo)
+	//repo := &mockRepo{}
+	handler := NewHandler(&mockService{})
 	req := httptest.NewRequest(http.MethodGet, "/users", nil)
 	w := httptest.NewRecorder()
 	handler.Users(w, req)
@@ -87,8 +87,8 @@ func TestGetUsers(t *testing.T) {
 
 func TestUpdateUser(t *testing.T) {
 	setupTestDB(t)
-	repo := NewUserRepository(db)
-	handler := NewHandler(repo)
+	//repo := NewUserRepository(db)
+	handler := NewHandler(&mockService{})
 	user := User{ID: "2", Name: "Old", Email: "old@example.com"}
 	db.NewInsert().Model(&user).Exec(context.Background())
 	reqBody := []byte(`{"name":"New","email":"new@example.com"}`)
@@ -103,8 +103,8 @@ func TestUpdateUser(t *testing.T) {
 
 func TestDeleteUser(t *testing.T) {
 	setupTestDB(t)
-	repo := NewUserRepository(db)
-	handler := NewHandler(repo)
+	//repo := NewUserRepository(db)
+	handler := NewHandler(&mockService{})
 	user := User{ID: "3", Name: "DeleteMe", Email: "delete@example.com"}
 	db.NewInsert().Model(&user).Exec(context.Background())
 	req := httptest.NewRequest(http.MethodDelete, "/users?id=3", nil)
@@ -117,8 +117,8 @@ func TestDeleteUser(t *testing.T) {
 
 func TestInvalidJSON(t *testing.T) {
 	setupTestDB(t)
-	repo := NewUserRepository(db)
-	handler := NewHandler(repo)
+	//repo := NewUserRepository(db)
+	handler := NewHandler(&mockService{})
 	reqBody := []byte(`invalid json`)
 	req := httptest.NewRequest(http.MethodPost, "/users", bytes.NewBuffer(reqBody))
 	w := httptest.NewRecorder()
@@ -129,8 +129,8 @@ func TestInvalidJSON(t *testing.T) {
 }
 
 func TestDeleteUserNotFound(t *testing.T) {
-	repo := &mockRepo{}
-	handler := NewHandler(repo)
+	//repo := &mockRepo{}
+	handler := NewHandler(&mockService{})
 	req := httptest.NewRequest(http.MethodDelete, "/users?id=999", nil)
 	w := httptest.NewRecorder()
 	handler.Users(w, req)
@@ -140,8 +140,8 @@ func TestDeleteUserNotFound(t *testing.T) {
 }
 
 func TestUpdateUserNotFound(t *testing.T) {
-	repo := &mockRepo{}
-	handler := NewHandler(repo)
+	//repo := &mockRepo{}
+	handler := NewHandler(&mockService{})
 	reqBody := []byte(`{"name":"New","email":"new@example.com"}`)
 	req := httptest.NewRequest(http.MethodPut, "/users?id=999", bytes.NewBuffer(reqBody))
 	req.Header.Set("Content-Type", "application/json")
@@ -154,8 +154,8 @@ func TestUpdateUserNotFound(t *testing.T) {
 
 func TestMissingIDParameter(t *testing.T) {
 	setupTestDB(t)
-	repo := NewUserRepository(db)
-	handler := NewHandler(repo)
+	//repo := NewUserRepository(db)
+	handler := NewHandler(&mockService{})
 	req := httptest.NewRequest(http.MethodDelete, "/users", nil)
 	w := httptest.NewRecorder()
 	handler.Users(w, req)
@@ -166,8 +166,8 @@ func TestMissingIDParameter(t *testing.T) {
 
 func TestMethodNotAllowed(t *testing.T) {
 	setupTestDB(t)
-	repo := NewUserRepository(db)
-	handler := NewHandler(repo)
+	//repo := NewUserRepository(db)
+	handler := NewHandler(&mockService{})
 	req := httptest.NewRequest(http.MethodPatch, "/users", nil)
 	w := httptest.NewRecorder()
 	handler.Users(w, req)
